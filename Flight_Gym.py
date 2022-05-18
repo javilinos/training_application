@@ -38,7 +38,7 @@ POSE = 2
 class Environment(VecEnv):
     def __init__(self, num_envs: int):
         
-        self.action_space = spaces.Box(np.array((-1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
+        self.action_space = spaces.Box(np.array((-0.5, -0.5, -0.5)), np.array((0.5, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
         self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
         self.num_envs = num_envs
         #VecEnv.__init__(self, 1, self.observation_space, self.action_space)
@@ -62,6 +62,7 @@ class Environment(VecEnv):
         self.agents_pose = []
         self.agents_speed = []
         self.points_pose = []
+        self.n_steps_executed = []
 
         for env in range(num_envs):
             self.speed_references_buf_pub.append(rospy.Publisher("/drone" + str(env+1) +"/motion_reference/speed", JointTrajectoryPoint, queue_size=1))
@@ -71,12 +72,13 @@ class Environment(VecEnv):
             self.agents_pose.append(PoseStamped())
             self.agents_speed.append(TwistStamped())
             self.points_pose.append(PoseStamped())
+            self.n_steps_executed.append(0)
 
         self.pose_reference = JointTrajectoryPoint()
         self.speed_reference = JointTrajectoryPoint()
 
-        self.states_poses = [PoseStamped(),PoseStamped(), PoseStamped(),PoseStamped(), TwistStamped(), TwistStamped(), TwistStamped(), TwistStamped()]
-        #self.states_poses = [PoseStamped(),TwistStamped()]
+        self.states = [PoseStamped(),PoseStamped(), PoseStamped(),PoseStamped(), TwistStamped(), TwistStamped(), TwistStamped(), TwistStamped()]
+        #self.states = [PoseStamped(),TwistStamped()]
         self.reward = 0.0
         self.initial_distance = 0.0
         self.r = rospy.Rate(100.0)
@@ -105,7 +107,7 @@ class Environment(VecEnv):
     def take_step (self, action): # Esta acción tiene la forma de np.array(float, float, float))
         quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
         #action_prime = action[:3]
-        action_prime = np.clip(quat.rotate(action), -1.0, 1.0)
+        action_prime = np.clip(quat.rotate(action), -0.5, 0.5)
        
         self.speed_reference.positions = [0.0, 0.0, 0.0, 0.0]
         self.speed_reference.velocities = [action_prime[0],action_prime[1],action_prime[2], 0.0]
@@ -114,6 +116,7 @@ class Environment(VecEnv):
         #self.speed_reference.twist.angular.z = action[3]
 
         self.PublishSpeedReferences()
+        self.n_steps_executed[self.env_idx] += 1
     
  
     def calculate_reward(self):
@@ -121,8 +124,8 @@ class Environment(VecEnv):
         goal_reward = 0.0
         distance_reward = 0.0
         
-        local_state_pose = self.states_poses[self.env_idx]
-        local_state_speed = self.states_poses[self.env_idx + self.num_envs]
+        local_state_pose = self.states[self.env_idx]
+        local_state_speed = self.states[self.env_idx + self.num_envs]
         quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
         sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
         sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
@@ -130,37 +133,46 @@ class Environment(VecEnv):
         
         if (round(local_state_pose.pose.position.x, 1) == 0.0 and round(local_state_pose.pose.position.y, 1) == 0.0 and round(local_state_pose.pose.position.z, 1) == 0.0):
             done = True
-            goal_reward = 1000.0
+            goal_reward = 20.0
             print("got big reward")
+            self.n_steps_executed[self.env_idx] = 0   
 
-        elif (self.agents_pose[self.env_idx].pose.position.z < 0.2):
+        elif (local_state_pose.pose.position.z == 1.0):
             done = True
-            goal_reward = -1000.0
+            goal_reward = -20.0
             print("got crash reward")
+            self.n_steps_executed[self.env_idx] = 0   
 
-        elif (self.agents_pose[self.env_idx].pose.position.z > 4.0):
+        elif (local_state_pose.pose.position.z == -1.0):
             done = True
-            goal_reward = -1000.0
+            goal_reward = -20.0
             print("got height reward")
+            self.n_steps_executed[self.env_idx] = 0   
 
         elif (abs(local_state_pose.pose.position.x) >= 1 or abs(local_state_pose.pose.position.y) >= 1):
             done = True
-            goal_reward = -1000.0
+            goal_reward = -20.0
             print("out_of_bounds reward")
+            self.n_steps_executed[self.env_idx] = 0   
+
+        if (self.n_steps_executed[self.env_idx]>=1024):
+            done = True
+            goal_reward = -10.0
+            print("time limit reward")
+            self.n_steps_executed[self.env_idx] = 0        
         
         
-        distance_reward = max(abs(local_state_speed.twist.linear.x), abs(local_state_speed.twist.linear.y))			
+        #distance_reward = max(abs(local_state_speed.twist.linear.x), abs(local_state_speed.twist.linear.y))			
 
         actual_distance = -self.CalcDistance(np.array([self.points_pose[self.env_idx].pose.position.x, self.points_pose[self.env_idx].pose.position.y]),
             np.array([self.agents_pose[self.env_idx].pose.position.x, self.agents_pose[self.env_idx].pose.position.y]))
 
-        height_distance = np.clip(-abs(self.states_poses[self.env_idx].pose.position.z), -1.0, 0.0)
-        
-        if (0.05 >= round(height_distance,2) >= -0.05):
-            height_distance = 1
-            print("height reward")
+        height_distance = np.clip(-abs(self.states[self.env_idx].pose.position.z), -1.0, 0.0)
+        """if (round (height_distance, 1) == 0.0):
+            height_distance = 100
+            print("good height reward")"""
 
-        distance_reward = distance_reward + np.clip(actual_distance/10, -1.0, 0.0) + height_distance
+        distance_reward = (np.clip(actual_distance/10, -1.0, 0.0))*0.001 + (height_distance)*0.5
         
         reward = distance_reward + goal_reward 
         
@@ -230,13 +242,13 @@ class Environment(VecEnv):
             while (not self.poses_received[self.env_idx]):
                 pass
             
-            local_state_speed = self.states_poses[self.env_idx + self.num_envs]
+            local_state_speed = self.states[self.env_idx + self.num_envs]
             quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
             sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
             sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
             local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
 
-            obs = np.array([self.states_poses[self.env_idx].pose.position.x, self.states_poses[self.env_idx].pose.position.y, self.states_poses[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
+            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
             self._save_obs(obs)
         
         return self._obs_from_buf()
@@ -252,10 +264,11 @@ class Environment(VecEnv):
               print ("Service call failed: %s"%e)
     
         rng = random.uniform(0, 2*np.pi)
+        rng_h = random.uniform(1.3, 2.7)
         q8c = Quat(axis=(0.0, 0.0, 1.0), radians=rng)
         x = 0.0
         y = 0.0
-        z = 2.0
+        z = rng_h
         qx = 0.0
         qy = 0.0
         qz = q8c.z
@@ -280,7 +293,7 @@ class Environment(VecEnv):
         while not ctrl_c:
             connections = self.hover_references_buf_pub[self.env_idx].get_num_connections()
                 
-            if (connections > 0):
+            if (connections > 1):
                 pose = ModelState()
                 pose.model_name = "iris_" + str(self.env_idx)
                 pose.pose.position.x = x
@@ -314,7 +327,7 @@ class Environment(VecEnv):
         while (not self.poses_received[self.env_idx]):
             pass
         
-        local_state_speed = self.states_poses[self.env_idx + self.num_envs]
+        local_state_speed = self.states[self.env_idx + self.num_envs]
         quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
         sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
         sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
@@ -327,7 +340,7 @@ class Environment(VecEnv):
         except rospy.ServiceException as e:
               print ("Service call failed: %s"%e)      
 
-        return np.array([self.states_poses[self.env_idx].pose.position.x, self.states_poses[self.env_idx].pose.position.y, self.states_poses[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
+        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:
         self.actions = actions
@@ -456,10 +469,10 @@ class Environment(VecEnv):
             T1w = self.T_inv(Tw1)
             T12 = np.matmul(T1w, Tw2)
             
-            self.states_poses[0] = self.Mat_2_posestamped(T12, f_id="map")
-            self.states_poses[0].pose.position.x = np.clip(self.states_poses[0].pose.position.x/10, -1, 1)
-            self.states_poses[0].pose.position.y = np.clip(self.states_poses[0].pose.position.y/10, -1, 1)
-            self.states_poses[0].pose.position.z = np.clip(self.states_poses[0].pose.position.z/2, -1, 1)
+            self.states[0] = self.Mat_2_posestamped(T12, f_id="map")
+            self.states[0].pose.position.x = np.clip(self.states[0].pose.position.x/10, -1, 1)
+            self.states[0].pose.position.y = np.clip(self.states[0].pose.position.y/10, -1, 1)
+            self.states[0].pose.position.z = np.clip(self.states[0].pose.position.z, -1, 1)
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
@@ -469,9 +482,9 @@ class Environment(VecEnv):
 
     def AgentSpeedCallback(self, data):
         self.agents_speed[0] = data
-        self.states_poses[self.num_envs].twist.linear.x = np.clip(self.states_poses[self.num_envs].twist.linear.x, -1, 1)
-        self.states_poses[self.num_envs].twist.linear.y = np.clip(self.states_poses[self.num_envs].twist.linear.y, -1, 1)
-        self.states_poses[self.num_envs].twist.linear.z = np.clip(self.states_poses[self.num_envs].twist.linear.z, -1, 1)
+        self.states[self.num_envs].twist.linear.x = np.clip(self.states[self.num_envs].twist.linear.x, -1, 1)
+        self.states[self.num_envs].twist.linear.y = np.clip(self.states[self.num_envs].twist.linear.y, -1, 1)
+        self.states[self.num_envs].twist.linear.z = np.clip(self.states[self.num_envs].twist.linear.z, -1, 1)
 
 
     def PointPoseCallback(self, data):
@@ -491,10 +504,10 @@ class Environment(VecEnv):
             T1w = self.T_inv(Tw1)
             T1_2 = np.matmul(T1w, Tw2)
             
-            self.states_poses[1] = self.Mat_2_posestamped(T1_2, f_id="map")
-            self.states_poses[1].pose.position.x = np.clip(self.states_poses[1].pose.position.x/10, -1, 1)
-            self.states_poses[1].pose.position.y = np.clip(self.states_poses[1].pose.position.y/10, -1, 1)
-            self.states_poses[1].pose.position.z = np.clip(self.states_poses[1].pose.position.z/2, -1, 1)
+            self.states[1] = self.Mat_2_posestamped(T1_2, f_id="map")
+            self.states[1].pose.position.x = np.clip(self.states[1].pose.position.x/10, -1, 1)
+            self.states[1].pose.position.y = np.clip(self.states[1].pose.position.y/10, -1, 1)
+            self.states[1].pose.position.z = np.clip(self.states[1].pose.position.z, -1, 1)
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
@@ -504,9 +517,9 @@ class Environment(VecEnv):
 
     def AgentSpeedCallback2(self, data):
         self.agents_speed[1] = data
-        self.states_poses[self.num_envs+1].twist.linear.x = np.clip(self.states_poses[self.num_envs+1].twist.linear.x, -1, 1)
-        self.states_poses[self.num_envs+1].twist.linear.y = np.clip(self.states_poses[self.num_envs+1].twist.linear.y, -1, 1)
-        self.states_poses[self.num_envs+1].twist.linear.z = np.clip(self.states_poses[self.num_envs+1].twist.linear.z, -1, 1)
+        self.states[self.num_envs+1].twist.linear.x = np.clip(self.states[self.num_envs+1].twist.linear.x, -1, 1)
+        self.states[self.num_envs+1].twist.linear.y = np.clip(self.states[self.num_envs+1].twist.linear.y, -1, 1)
+        self.states[self.num_envs+1].twist.linear.z = np.clip(self.states[self.num_envs+1].twist.linear.z, -1, 1)
 
 
     def PointPoseCallback2(self, data):
@@ -524,10 +537,10 @@ class Environment(VecEnv):
             T1w = self.T_inv(Tw1)
             T1_2 = np.matmul(T1w, Tw2)
             
-            self.states_poses[2] = self.Mat_2_posestamped(T1_2, f_id="map")
-            self.states_poses[2].pose.position.x = np.clip(self.states_poses[2].pose.position.x/10, -1, 1)
-            self.states_poses[2].pose.position.y = np.clip(self.states_poses[2].pose.position.y/10, -1, 1)
-            self.states_poses[2].pose.position.z = np.clip(self.states_poses[2].pose.position.z/2, -1, 1)
+            self.states[2] = self.Mat_2_posestamped(T1_2, f_id="map")
+            self.states[2].pose.position.x = np.clip(self.states[2].pose.position.x/10, -1, 1)
+            self.states[2].pose.position.y = np.clip(self.states[2].pose.position.y/10, -1, 1)
+            self.states[2].pose.position.z = np.clip(self.states[2].pose.position.z, -1, 1)
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
@@ -537,9 +550,9 @@ class Environment(VecEnv):
    
     def AgentSpeedCallback3(self, data):
         self.agents_speed[2] = data
-        self.states_poses[self.num_envs+2].twist.linear.x = np.clip(self.states_poses[self.num_envs+2].twist.linear.x, -1, 1)
-        self.states_poses[self.num_envs+2].twist.linear.y = np.clip(self.states_poses[self.num_envs+2].twist.linear.y, -1, 1)
-        self.states_poses[self.num_envs+2].twist.linear.z = np.clip(self.states_poses[self.num_envs+2].twist.linear.z, -1, 1)
+        self.states[self.num_envs+2].twist.linear.x = np.clip(self.states[self.num_envs+2].twist.linear.x, -1, 1)
+        self.states[self.num_envs+2].twist.linear.y = np.clip(self.states[self.num_envs+2].twist.linear.y, -1, 1)
+        self.states[self.num_envs+2].twist.linear.z = np.clip(self.states[self.num_envs+2].twist.linear.z, -1, 1)
 
 
     def PointPoseCallback3(self, data):
@@ -557,10 +570,10 @@ class Environment(VecEnv):
             T1w = self.T_inv(Tw1)
             T1_2 = np.matmul(T1w, Tw2)
             
-            self.states_poses[3] = self.Mat_2_posestamped(T1_2, f_id="map")
-            self.states_poses[3].pose.position.x = np.clip(self.states_poses[3].pose.position.x/10, -1, 1)
-            self.states_poses[3].pose.position.y = np.clip(self.states_poses[3].pose.position.y/10, -1, 1)
-            self.states_poses[3].pose.position.z = np.clip(self.states_poses[3].pose.position.z/2, -1, 1)
+            self.states[3] = self.Mat_2_posestamped(T1_2, f_id="map")
+            self.states[3].pose.position.x = np.clip(self.states[3].pose.position.x/10, -1, 1)
+            self.states[3].pose.position.y = np.clip(self.states[3].pose.position.y/10, -1, 1)
+            self.states[3].pose.position.z = np.clip(self.states[3].pose.position.z, -1, 1)
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
@@ -570,9 +583,9 @@ class Environment(VecEnv):
    
     def AgentSpeedCallback4(self, data):
         self.agents_speed[3] = data
-        self.states_poses[self.num_envs+3].twist.linear.x = np.clip(self.states_poses[self.num_envs+3].twist.linear.x, -1, 1)
-        self.states_poses[self.num_envs+3].twist.linear.y = np.clip(self.states_poses[self.num_envs+3].twist.linear.y, -1, 1)
-        self.states_poses[self.num_envs+3].twist.linear.z = np.clip(self.states_poses[self.num_envs+3].twist.linear.z, -1, 1)
+        self.states[self.num_envs+3].twist.linear.x = np.clip(self.states[self.num_envs+3].twist.linear.x, -1, 1)
+        self.states[self.num_envs+3].twist.linear.y = np.clip(self.states[self.num_envs+3].twist.linear.y, -1, 1)
+        self.states[self.num_envs+3].twist.linear.z = np.clip(self.states[self.num_envs+3].twist.linear.z, -1, 1)
 
 
     def PointPoseCallback4(self, data):
@@ -586,13 +599,12 @@ class Environment(VecEnv):
 
 
     def PublishSpeedReferences(self):
-        self.speed_references_buf_pub[self.env_idx].publish(self.speed_reference)
-        """ctrl_c = False
+        ctrl_c = False
         while not ctrl_c:
-            connections = self.speed_reference_pub.get_num_connections()
+            connections = self.speed_references_buf_pub[self.env_idx].get_num_connections()
             if (connections > 0):
-                
-                ctrl_c = True"""
+                self.speed_references_buf_pub[self.env_idx].publish(self.speed_reference)
+                ctrl_c = True
 
     def setControlMode(self, control_mode):
         rospy.wait_for_service("/drone" + str(self.env_idx+1) + "/set_control_mode")
