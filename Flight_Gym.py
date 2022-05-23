@@ -141,6 +141,9 @@ class Environment(VecEnv):
             done = True
             goal_reward = 40.0 * np.clip(angle_distance, 0.0, 1.0) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)
             print("got big reward")
+            print (local_state_angle)
+            print(angle_distance)
+            print(goal_reward)
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (local_state_pose.pose.position.z == 1.0):
