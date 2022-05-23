@@ -149,14 +149,14 @@ def mission():
 
     t = Environment(4)
     t = VecMonitor(t, filename="/home/javilinos/PPO_Monitor")
-    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO", verbose=1, n_steps=512, batch_size=128, gae_lambda=0.9, gamma=0.99, n_epochs=20, max_grad_norm=0.5, ent_coef=0.0, sde_sample_freq= 4, vf_coef=0.5, clip_range=0.4, learning_rate=3e-05, use_sde=True, policy_kwargs=dict(
+    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO", verbose=1, n_steps=512, batch_size=128, gae_lambda=0.95, gamma=0.99, n_epochs=20, max_grad_norm=0.5, ent_coef=0.0, sde_sample_freq= 4, vf_coef=0.5, clip_range=0.4, learning_rate=3e-05, use_sde=True, policy_kwargs=dict(
                         log_std_init=-1,
                         ortho_init=False,
                         activation_fn=th.nn.ReLU,
-                        net_arch=[dict(pi=[256, 256], vf=[256, 256])]
+                        net_arch=[dict(pi=[256, 256, 512], vf=[256, 256, 512])]
                         ))
     print("Starting mission...")
-    model.learn(total_timesteps=1000000, callback=cb)
+    model.learn(total_timesteps=2000000, callback=cb)
     obs = t.reset()
     
     print('Finish mission...')

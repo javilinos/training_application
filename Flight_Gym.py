@@ -39,7 +39,7 @@ class Environment(VecEnv):
     def __init__(self, num_envs: int):
         
         self.action_space = spaces.Box(np.array((-0.5, -0.5, -0.5)), np.array((0.5, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
-        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
+        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
         self.num_envs = num_envs
         #VecEnv.__init__(self, 1, self.observation_space, self.action_space)
         obs_space = self.observation_space
@@ -106,11 +106,14 @@ class Environment(VecEnv):
 
     def take_step (self, action): # Esta acción tiene la forma de np.array(float, float, float))
         quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
-        #action_prime = action[:3]
-        action_prime = np.clip(quat.rotate(action), -0.5, 0.5)
-       
+
+        action_prime = np.array([action[0], 0.0, action[1]])
+
+        #action_prime = action[0:3]
+        action_prime = np.clip(quat.rotate(action_prime), -0.5, 0.5)
+
         self.speed_reference.positions = [0.0, 0.0, 0.0, 0.0]
-        self.speed_reference.velocities = [action_prime[0],action_prime[1],action_prime[2], 0.0]
+        self.speed_reference.velocities = [action_prime[0], action_prime[1], action[1], action[2]]
         self.speed_reference.accelerations = [0.0, 0.0, 0.0, 0.0]
         self.speed_reference.effort = []
         #self.speed_reference.twist.angular.z = action[3]
@@ -130,10 +133,13 @@ class Environment(VecEnv):
         sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
         sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
+        local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
         
+        angle_distance = math.cos(local_state_angle)
+
         if (round(local_state_pose.pose.position.x, 1) == 0.0 and round(local_state_pose.pose.position.y, 1) == 0.0 and round(local_state_pose.pose.position.z, 1) == 0.0):
             done = True
-            goal_reward = 20.0
+            goal_reward = 40.0 * np.clip(angle_distance, 0.0, 1.0) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)
             print("got big reward")
             self.n_steps_executed[self.env_idx] = 0   
 
@@ -172,11 +178,13 @@ class Environment(VecEnv):
             height_distance = 100
             print("good height reward")"""
 
-        distance_reward = (np.clip(actual_distance/10, -1.0, 0.0))*0.001 + (height_distance)*0.5
+        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.001 + height_distance*0.5
         
-        reward = distance_reward + goal_reward 
+        reward = distance_reward + goal_reward
+
+        local_state_angle = np.clip(local_state_angle/np.pi, -1.0, 1.0)
         
-        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32), reward, done, {}
+        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32), reward, done, {}
 
     def reset(self) -> VecEnvObs:
         for self.env_idx in range(self.num_envs):
@@ -193,7 +201,7 @@ class Environment(VecEnv):
             self.pause_physics()"""
             self.poses_received[self.env_idx] = False 
             ctrl_c = False
-            _,_,yaw = self.euler_from_quaternion(qx,qy,qz,qw)
+            yaw = self.euler_from_quaternion(qx,qy,qz,qw)
             
             self.pose_reference.positions = [x, y, z, yaw]
             self.pose_reference.velocities = [0.0, 0.0, 0.0, 0.0]
@@ -248,7 +256,9 @@ class Environment(VecEnv):
             sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
             local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
 
-            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
+            local_state_angle = np.clip(self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)/np.pi, -1.0, 1.0)
+
+            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32)
             self._save_obs(obs)
         
         return self._obs_from_buf()
@@ -278,7 +288,7 @@ class Environment(VecEnv):
         self.poses_received[self.env_idx] = False 
         ctrl_c = False
 
-        _,_,yaw = self.euler_from_quaternion(qx,qy,qz,qw)
+        yaw = self.euler_from_quaternion(qx,qy,qz,qw)
         
         self.pose_reference.positions = [x, y, z, yaw]
         self.pose_reference.velocities = [0.0, 0.0, 0.0, 0.0]
@@ -332,6 +342,8 @@ class Environment(VecEnv):
         sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
         sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
+
+        local_state_angle = np.clip(self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)/np.pi, -1.0, 1.0)
         
         rospy.wait_for_service('/gazebo/pause_physics')
         try:
@@ -340,7 +352,7 @@ class Environment(VecEnv):
         except rospy.ServiceException as e:
               print ("Service call failed: %s"%e)      
 
-        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z]).astype(np.float32)
+        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:
         self.actions = actions
@@ -458,7 +470,7 @@ class Environment(VecEnv):
             t4 = +1.0 - 2.0 * (y * y + z * z)
             yaw_z = np.arctan2(t3, t4)
         
-            return roll_x, pitch_y, yaw_z # in radians
+            return yaw_z # in radians
 
     def AgentPoseCallback(self, data):
         self.agents_pose[0] = data
@@ -473,6 +485,17 @@ class Environment(VecEnv):
             self.states[0].pose.position.x = np.clip(self.states[0].pose.position.x/10, -1, 1)
             self.states[0].pose.position.y = np.clip(self.states[0].pose.position.y/10, -1, 1)
             self.states[0].pose.position.z = np.clip(self.states[0].pose.position.z, -1, 1)
+            
+            agent_quat = Quat(x=0.0, y=0.0, z=self.agents_pose[0].pose.orientation.z, w=self.agents_pose[0].pose.orientation.w)
+            point_quat = Quat(x=0.0, y=0.0, z=self.points_pose[0].pose.orientation.z, w=self.points_pose[0].pose.orientation.w)
+
+            rel_quat = agent_quat - point_quat
+
+            self.states[0].pose.orientation.x = rel_quat.x
+            self.states[0].pose.orientation.y = rel_quat.y
+            self.states[0].pose.orientation.z = rel_quat.z
+            self.states[0].pose.orientation.w = rel_quat.w
+
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
@@ -509,6 +532,16 @@ class Environment(VecEnv):
             self.states[1].pose.position.y = np.clip(self.states[1].pose.position.y/10, -1, 1)
             self.states[1].pose.position.z = np.clip(self.states[1].pose.position.z, -1, 1)
 
+            agent_quat = Quat(x=0.0, y=0.0, z=self.agents_pose[1].pose.orientation.z, w=self.agents_pose[1].pose.orientation.w)
+            point_quat = Quat(x=0.0, y=0.0, z=self.points_pose[1].pose.orientation.z, w=self.points_pose[1].pose.orientation.w)
+
+            rel_quat = agent_quat - point_quat
+
+            self.states[1].pose.orientation.x = rel_quat.x
+            self.states[1].pose.orientation.y = rel_quat.y
+            self.states[1].pose.orientation.z = rel_quat.z
+            self.states[1].pose.orientation.w = rel_quat.w
+
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
             print("state z", self.state_pose.pose.position.z)"""
@@ -542,6 +575,16 @@ class Environment(VecEnv):
             self.states[2].pose.position.y = np.clip(self.states[2].pose.position.y/10, -1, 1)
             self.states[2].pose.position.z = np.clip(self.states[2].pose.position.z, -1, 1)
 
+            agent_quat = Quat(x=0.0, y=0.0, z=self.agents_pose[2].pose.orientation.z, w=self.agents_pose[2].pose.orientation.w)
+            point_quat = Quat(x=0.0, y=0.0, z=self.points_pose[2].pose.orientation.z, w=self.points_pose[2].pose.orientation.w)
+
+            rel_quat = agent_quat - point_quat
+
+            self.states[2].pose.orientation.x = rel_quat.x
+            self.states[2].pose.orientation.y = rel_quat.y
+            self.states[2].pose.orientation.z = rel_quat.z
+            self.states[2].pose.orientation.w = rel_quat.w
+
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
             print("state z", self.state_pose.pose.position.z)"""
@@ -574,6 +617,16 @@ class Environment(VecEnv):
             self.states[3].pose.position.x = np.clip(self.states[3].pose.position.x/10, -1, 1)
             self.states[3].pose.position.y = np.clip(self.states[3].pose.position.y/10, -1, 1)
             self.states[3].pose.position.z = np.clip(self.states[3].pose.position.z, -1, 1)
+
+            agent_quat = Quat(x=0.0, y=0.0, z=self.agents_pose[3].pose.orientation.z, w=self.agents_pose[3].pose.orientation.w)
+            point_quat = Quat(x=0.0, y=0.0, z=self.points_pose[3].pose.orientation.z, w=self.points_pose[3].pose.orientation.w)
+
+            rel_quat = agent_quat - point_quat
+
+            self.states[3].pose.orientation.x = rel_quat.x
+            self.states[3].pose.orientation.y = rel_quat.y
+            self.states[3].pose.orientation.z = rel_quat.z
+            self.states[3].pose.orientation.w = rel_quat.w
 
             """print("state x", self.state_pose.pose.position.x)
             print("state y", self.state_pose.pose.position.y)
