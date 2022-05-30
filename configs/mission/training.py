@@ -18,6 +18,7 @@ PROJECT = os.getenv('PWD')
 print (PROJECT)
 sys.path.append(PROJECT)
 from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
+from typing import Callable
 from Flight_Gym import *
 
 from stable_baselines3 import PPO
@@ -39,6 +40,24 @@ N_ENVS = 4
 
 from stable_baselines3.common.callbacks import BaseCallback
 
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value: Initial learning rate.
+    :return: schedule that computes
+      current learning rate depending on remaining progress
+    """
+    def func(progress_remaining: float) -> float:
+        """
+        Progress will decrease from 1 (beginning) to 0.
+
+        :param progress_remaining:
+        :return: current learning rate
+        """
+        return progress_remaining * initial_value
+
+    return func
 
 class CustomCallback(BaseCallback):
     """
@@ -149,11 +168,11 @@ def mission():
 
     t = Environment(4)
     t = VecMonitor(t, filename="/home/javilinos/PPO_Monitor")
-    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO", verbose=1, device=th.device("cpu"), n_steps=512, batch_size=128, gae_lambda=0.9, gamma=0.99, n_epochs=20, max_grad_norm=0.5, ent_coef=0.0, sde_sample_freq= 4, vf_coef=0.5, clip_range=0.4, learning_rate=3e-05, use_sde=True, policy_kwargs=dict(
+    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO", verbose=1, device=th.device("cpu"), n_steps=512, batch_size=64, gae_lambda=0.95, gamma=0.99, n_epochs=10, ent_coef=0.001, vf_coef=0.5, clip_range=0.3, learning_rate=linear_schedule(5e-05), use_sde=True, policy_kwargs=dict(
                         log_std_init=-1,
                         ortho_init=False,
                         activation_fn=th.nn.ReLU,
-                        net_arch=[dict(pi=[256, 256, 512], vf=[256, 256, 512])]
+                        net_arch=[dict(pi=[512, 512, 1024], vf=[512, 512, 1024])]
                         ))
     print("Starting mission...")
     model.learn(total_timesteps=2000000, callback=cb)

@@ -38,8 +38,8 @@ POSE = 2
 class Environment(VecEnv):
     def __init__(self, num_envs: int):
         
-        self.action_space = spaces.Box(np.array((-0.5, -0.5, -0.5)), np.array((0.5, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
-        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
+        self.action_space = spaces.Box(np.array((0.0, -0.1, -0.5, -0.5)), np.array((0.5, 0.1, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
+        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
         self.num_envs = num_envs
         #VecEnv.__init__(self, 1, self.observation_space, self.action_space)
         obs_space = self.observation_space
@@ -107,13 +107,13 @@ class Environment(VecEnv):
     def take_step (self, action): # Esta acción tiene la forma de np.array(float, float, float))
         quat = Quat(x=0.0, y=0.0, z=self.agents_pose[self.env_idx].pose.orientation.z, w=self.agents_pose[self.env_idx].pose.orientation.w)
 
-        action_prime = np.array([action[0], 0.0, action[1]])
+        action_prime = np.array([action[0], action[1], 0.0])
 
         #action_prime = action[0:3]
         action_prime = np.clip(quat.rotate(action_prime), -0.5, 0.5)
 
         self.speed_reference.positions = [0.0, 0.0, 0.0, 0.0]
-        self.speed_reference.velocities = [action_prime[0], action_prime[1], action[1], action[2]]
+        self.speed_reference.velocities = [action_prime[0], action_prime[1], action[2], action[3]]
         self.speed_reference.accelerations = [0.0, 0.0, 0.0, 0.0]
         self.speed_reference.effort = []
         #self.speed_reference.twist.angular.z = action[3]
@@ -135,41 +135,36 @@ class Environment(VecEnv):
         
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
         local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
-        if (self.env_idx==0):           
-            print (local_state_speed.twist.linear.x)
         angle_distance = math.cos(local_state_angle)
 
         if (round(local_state_pose.pose.position.x, 1) == 0.0 and round(local_state_pose.pose.position.y, 1) == 0.0 and round(local_state_pose.pose.position.z, 1) == 0.0):
             done = True
             goal_reward = 40.0 * np.clip(angle_distance, 0.0, 1.0) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)*2
             print("got big reward")
-            print (local_state_angle)
-            print(angle_distance)
-            print(angle_distance)
-            print(local_state_speed)
+            print (goal_reward)
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (local_state_pose.pose.position.z == 1.0):
             done = True
-            goal_reward = -20.0
+            goal_reward = -30.0
             print("got crash reward")
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (local_state_pose.pose.position.z == -1.0):
             done = True
-            goal_reward = -20.0
+            goal_reward = -30.0
             print("got height reward")
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (abs(local_state_pose.pose.position.x) >= 1 or abs(local_state_pose.pose.position.y) >= 1):
             done = True
-            goal_reward = -20.0
+            goal_reward = -30.0
             print("out_of_bounds reward")
             self.n_steps_executed[self.env_idx] = 0   
 
-        if (self.n_steps_executed[self.env_idx]>=1024):
+        if (self.n_steps_executed[self.env_idx]>=2048):
             done = True
-            goal_reward = -10.0
+            goal_reward = -20.0
             print("time limit reward")
             self.n_steps_executed[self.env_idx] = 0        
         
@@ -183,14 +178,16 @@ class Environment(VecEnv):
         """if (round (height_distance, 1) == 0.0):
             height_distance = 100
             print("good height reward")"""
+            
+        angle_to_point = np.clip(math.atan2(local_state_pose.pose.position.x, local_state_pose.pose.position.y)/(np.pi/2), -1.0, 1.0)
 
-        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.001 + height_distance*0.5
+        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + angle_distance*0.01 + angle_to_point*0.05
         
         reward = distance_reward + goal_reward
 
-        local_state_angle = np.clip(local_state_angle/np.pi, -1.0, 1.0)
+        #local_state_angle = np.clip(local_state_angle/np.pi, -1.0, 1.0)
         
-        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32), reward, done, {}
+        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32), reward, done, {}
 
     def reset(self) -> VecEnvObs:
         for self.env_idx in range(self.num_envs):
@@ -265,10 +262,11 @@ class Environment(VecEnv):
             sp_tmp = np.array([local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z])
             sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
             local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
-
-            local_state_angle = np.clip(self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)/np.pi, -1.0, 1.0)
-
-            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32)
+            
+            local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
+            angle_distance = math.cos(local_state_angle)
+            angle_to_point = np.clip(math.atan2(self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y)/(np.pi/2), -1.0, 1.0)
+            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32)
             self._save_obs(obs)
         
         return self._obs_from_buf()
@@ -340,9 +338,16 @@ class Environment(VecEnv):
                 self.hover_references_buf_pub[self.env_idx].publish(self.pose_reference)
                 ctrl_c = True
 
+        
         ctrl_c = False
         
-        self.reset_flightmare_buf_pub[self.env_idx].publish(std_msgs.msg.Empty())
+        while not ctrl_c:
+            connections = self.reset_flightmare_buf_pub[self.env_idx].get_num_connections()
+            
+            if (connections > 0):            
+                self.reset_flightmare_buf_pub[self.env_idx].publish(std_msgs.msg.Empty())
+                ctrl_c = True
+                
         rospy.wait_for_message("/drone"+ str(self.env_idx+1) + "/self_localization/pose", PoseStamped)
         while (not self.poses_received[self.env_idx]):
             continue
@@ -353,8 +358,9 @@ class Environment(VecEnv):
         sp_tmp = np.clip(quat.rotate(sp_tmp), -1.0, 1.0)
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
 
-        local_state_angle = np.clip(self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)/np.pi, -1.0, 1.0)
-        
+        local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
+        angle_distance = math.cos(local_state_angle)
+        angle_to_point = np.clip(math.atan2(self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y)/(np.pi/2), -1.0, 1.0)
         rospy.wait_for_service('/gazebo/pause_physics')
         try:
               unpause_physics = rospy.ServiceProxy('/gazebo/pause_physics', Emptysrv)
@@ -362,7 +368,7 @@ class Environment(VecEnv):
         except rospy.ServiceException as e:
               print ("Service call failed: %s"%e)      
 
-        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, local_state_angle]).astype(np.float32)
+        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:
         self.actions = actions
@@ -515,6 +521,7 @@ class Environment(VecEnv):
 
     def AgentSpeedCallback(self, data):
         self.agents_speed[0] = data
+        
         self.states[self.num_envs].twist.linear.x = np.clip(self.agents_speed[0].twist.linear.x, -1, 1)
         self.states[self.num_envs].twist.linear.y = np.clip(self.agents_speed[0].twist.linear.y, -1, 1)
         self.states[self.num_envs].twist.linear.z = np.clip(self.agents_speed[0].twist.linear.z, -1, 1)
