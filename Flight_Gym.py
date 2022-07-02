@@ -116,7 +116,6 @@ class Environment(VecEnv):
         self.speed_reference.velocities = [action_prime[0], action_prime[1], action[2], action[3]]
         self.speed_reference.accelerations = [0.0, 0.0, 0.0, 0.0]
         self.speed_reference.effort = []
-        #self.speed_reference.twist.angular.z = action[3]
 
         self.PublishSpeedReferences()
         self.n_steps_executed[self.env_idx] += 1
@@ -179,9 +178,9 @@ class Environment(VecEnv):
             height_distance = 100
             print("good height reward")"""
             
-        angle_to_point = np.clip(math.atan2(local_state_pose.pose.position.x, local_state_pose.pose.position.y)/(np.pi/2), -1.0, 1.0)
+        angle_to_point = math.cos(math.atan2(local_state_pose.pose.position.y, local_state_pose.pose.position.x))
 
-        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + angle_distance*0.01 + angle_to_point*0.05
+        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + angle_distance*0.01 + angle_to_point*0.02
         
         reward = distance_reward + goal_reward
 
