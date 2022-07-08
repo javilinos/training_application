@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source main_launcher.sh &
-source main_launcher2.sh &
-source main_launcher3.sh &
-source main_launcher4.sh &
+. main_launcher.sh & sleep 5
+. main_launcher2.sh & sleep 5
+. main_launcher3.sh & sleep 5
+. main_launcher4.sh

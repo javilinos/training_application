@@ -38,8 +38,8 @@ POSE = 2
 class Environment(VecEnv):
     def __init__(self, num_envs: int):
         
-        self.action_space = spaces.Box(np.array((0.0, -0.1, -0.5, -0.5)), np.array((0.5, 0.1, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
-        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
+        self.action_space = spaces.Box(np.array((0.0, -0.5, -0.5, -0.5)), np.array((0.5, 0.5, 0.5, 0.5)), dtype=np.float32) # Espacio de acción continuo vector 1x4 con valores -> [-1, 1]
+        self.observation_space = spaces.Box(np.array((-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0)), np.array((1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), dtype=np.float32)
         self.num_envs = num_envs
         #VecEnv.__init__(self, 1, self.observation_space, self.action_space)
         obs_space = self.observation_space
@@ -134,39 +134,40 @@ class Environment(VecEnv):
         
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
         local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
-        angle_distance = math.cos(local_state_angle)
+        #angle_distance = math.cos(local_state_angle)
+        angle_distance = local_state_angle/math.pi
+        angle_to_point = math.atan2(local_state_pose.pose.position.y, local_state_pose.pose.position.x)/math.pi
 
         if (round(local_state_pose.pose.position.x, 1) == 0.0 and round(local_state_pose.pose.position.y, 1) == 0.0 and round(local_state_pose.pose.position.z, 1) == 0.0):
             done = True
-            goal_reward = 40.0 * np.clip(angle_distance, 0.0, 1.0) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)*2
+            goal_reward = 40.0 * (1-abs(angle_distance)) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)*2
             print("got big reward")
             print (goal_reward)
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (local_state_pose.pose.position.z == 1.0):
             done = True
-            goal_reward = -30.0
+            goal_reward = -40.0
             print("got crash reward")
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (local_state_pose.pose.position.z == -1.0):
             done = True
-            goal_reward = -30.0
+            goal_reward = -40.0
             print("got height reward")
             self.n_steps_executed[self.env_idx] = 0   
 
         elif (abs(local_state_pose.pose.position.x) >= 1 or abs(local_state_pose.pose.position.y) >= 1):
             done = True
-            goal_reward = -30.0
+            goal_reward = -40.0
             print("out_of_bounds reward")
             self.n_steps_executed[self.env_idx] = 0   
 
         if (self.n_steps_executed[self.env_idx]>=2048):
             done = True
-            goal_reward = -20.0
+            goal_reward = -40.0
             print("time limit reward")
-            self.n_steps_executed[self.env_idx] = 0        
-        
+            self.n_steps_executed[self.env_idx] = 0               
         
         #distance_reward = max(abs(local_state_speed.twist.linear.x), abs(local_state_speed.twist.linear.y))			
 
@@ -178,15 +179,15 @@ class Environment(VecEnv):
             height_distance = 100
             print("good height reward")"""
             
-        angle_to_point = math.cos(math.atan2(local_state_pose.pose.position.y, local_state_pose.pose.position.x))
-
-        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + angle_distance*0.01 + angle_to_point*0.02
+        #angle_to_point = math.cos(math.atan2(local_state_pose.pose.position.y, local_state_pose.pose.position.x))
+        
+        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + (-abs(angle_distance))*0.02 + (-abs(angle_to_point))*0.02 + np.clip(local_state_speed.twist.linear.x, 0.0, 0.5)*0.2
         
         reward = distance_reward + goal_reward
 
         #local_state_angle = np.clip(local_state_angle/np.pi, -1.0, 1.0)
-        
-        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32), reward, done, {}
+
+        return np.array([local_state_pose.pose.position.x, local_state_pose.pose.position.y, local_state_pose.pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance]).astype(np.float32), reward, done, {}
 
     def reset(self) -> VecEnvObs:
         for self.env_idx in range(self.num_envs):
@@ -263,9 +264,8 @@ class Environment(VecEnv):
             local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
             
             local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
-            angle_distance = math.cos(local_state_angle)
-            angle_to_point = np.clip(math.atan2(self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y)/(np.pi/2), -1.0, 1.0)
-            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32)
+            angle_distance = local_state_angle/math.pi
+            obs = np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance]).astype(np.float32)
             self._save_obs(obs)
         
         return self._obs_from_buf()
@@ -358,8 +358,7 @@ class Environment(VecEnv):
         local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z = sp_tmp[0], sp_tmp[1], sp_tmp[2]
 
         local_state_angle = self.euler_from_quaternion(0.0,0.0,self.states[self.env_idx].pose.orientation.z,self.states[self.env_idx].pose.orientation.w)
-        angle_distance = math.cos(local_state_angle)
-        angle_to_point = np.clip(math.atan2(self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y)/(np.pi/2), -1.0, 1.0)
+        angle_distance = local_state_angle/math.pi
         rospy.wait_for_service('/gazebo/pause_physics')
         try:
               unpause_physics = rospy.ServiceProxy('/gazebo/pause_physics', Emptysrv)
@@ -367,7 +366,7 @@ class Environment(VecEnv):
         except rospy.ServiceException as e:
               print ("Service call failed: %s"%e)      
 
-        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance, angle_to_point]).astype(np.float32)
+        return np.array([self.states[self.env_idx].pose.position.x, self.states[self.env_idx].pose.position.y, self.states[self.env_idx].pose.position.z, local_state_speed.twist.linear.x, local_state_speed.twist.linear.y, local_state_speed.twist.linear.z, angle_distance]).astype(np.float32)
 
     def step_async(self, actions: np.ndarray) -> None:
         self.actions = actions

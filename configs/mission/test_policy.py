@@ -175,15 +175,13 @@ def mission():
     t = VecMonitor(t, filename="/home/javilinos/PPO_Monitor")
     cb = CustomCallback()
     checkpoint_callback = CheckpointCallback(save_freq=50000, save_path="/home/javilinos/saved_models/checkpoint/", name_prefix="rl_model")
-    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO_X", verbose=1, device=th.device("cpu"), n_steps=1024, batch_size=16, gae_lambda=0.93, gamma=0.999, n_epochs=5, ent_coef=0.001, vf_coef=0.5, normalize_advantage=True, clip_range=0.3, learning_rate=3e-05, use_sde=True, policy_kwargs=dict(
-                        log_std_init=-1,
-                        ortho_init=False,
-                        activation_fn=th.nn.ReLU,
-                        net_arch=[dict(pi=[256, 256, 128], vf=[256, 256, 128])]
-                        ))
+    model = PPO.load("/home/javilinos/saved_models/checkpoint/rl_model_3200000_steps.zip", t)
     print("Starting mission...")
-    model.learn(total_timesteps=4000000, callback=[cb, checkpoint_callback])
-
+    
     obs = t.reset()
+    while True:
+      actions, _ = model.predict(obs)
+      t.step_async(actions=actions)
+      obs, _, _, _ = t.step_wait()
     
     print('Finish mission...')
