@@ -20,6 +20,7 @@ print (PROJECT)
 sys.path.append(PROJECT)
 from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.evaluation import evaluate_policy
 from typing import Callable
 from Flight_Gym import *
 
@@ -175,13 +176,14 @@ def mission():
     t = VecMonitor(t, filename="/home/javilinos/PPO_Monitor")
     cb = CustomCallback()
     checkpoint_callback = CheckpointCallback(save_freq=50000, save_path="/home/javilinos/saved_models/checkpoint/", name_prefix="rl_model")
-    model = PPO.load("/home/javilinos/saved_models/checkpoint/rl_model_3200000_steps.zip", t)
+    model = PPO.load("/home/javilinos/Escritorio/ENTRENAMIENTOS_ORGANIZADOS/PPO_10/rl_model_3000000_steps.zip", t, device=th.device("cpu"))
     print("Starting mission...")
-    
-    obs = t.reset()
-    while True:
+
+    mean_reward, std_reward = evaluate_policy(model, t, 25)
+    print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
+    """while True:
       actions, _ = model.predict(obs)
       t.step_async(actions=actions)
-      obs, _, _, _ = t.step_wait()
+      obs, _, _, _ = t.step_wait()"""
     
     print('Finish mission...')

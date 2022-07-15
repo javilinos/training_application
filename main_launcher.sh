@@ -14,7 +14,7 @@ roslaunch python_based_mission_interpreter_process python_based_mission_interpre
   drone_id_namespace:=drone$NUMID_DRONE \
   drone_id_int:=$NUMID_DRONE \
   my_stack_directory:=${AEROSTACK_PROJECT} \
-  mission:=training.py \
+  mission:=test_policy.py \
   mission_configuration_folder:=${AEROSTACK_PROJECT}/configs/mission;
 exec bash\"" \
 `#---------------------------------------------------------------------------------------------` \

@@ -113,7 +113,7 @@ class Environment(VecEnv):
         action_prime = np.clip(quat.rotate(action_prime), -0.5, 0.5)
 
         self.speed_reference.positions = [0.0, 0.0, 0.0, 0.0]
-        self.speed_reference.velocities = [action_prime[0], action_prime[1], action[2], action[3]]
+        self.speed_reference.velocities = [action_prime[0]*2, action_prime[1]*2, action[2], action[3]*2]
         self.speed_reference.accelerations = [0.0, 0.0, 0.0, 0.0]
         self.speed_reference.effort = []
 
@@ -140,7 +140,7 @@ class Environment(VecEnv):
 
         if (round(local_state_pose.pose.position.x, 1) == 0.0 and round(local_state_pose.pose.position.y, 1) == 0.0 and round(local_state_pose.pose.position.z, 1) == 0.0):
             done = True
-            goal_reward = 40.0 * (1-abs(angle_distance)) * np.clip(local_state_speed.twist.linear.x, 0.0, 1.0)*2
+            goal_reward = 40.0 * (1-abs(angle_distance)) * np.clip(local_state_speed.twist.linear.x, 0.0, 0.5)*2
             print("got big reward")
             print (goal_reward)
             self.n_steps_executed[self.env_idx] = 0   
@@ -165,7 +165,7 @@ class Environment(VecEnv):
 
         if (self.n_steps_executed[self.env_idx]>=2048):
             done = True
-            goal_reward = -40.0
+            goal_reward = -20.0
             print("time limit reward")
             self.n_steps_executed[self.env_idx] = 0               
         
@@ -181,7 +181,7 @@ class Environment(VecEnv):
             
         #angle_to_point = math.cos(math.atan2(local_state_pose.pose.position.y, local_state_pose.pose.position.x))
         
-        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + (-abs(angle_distance))*0.02 + (-abs(angle_to_point))*0.02 + np.clip(local_state_speed.twist.linear.x, 0.0, 0.5)*0.2
+        distance_reward = np.clip(actual_distance/10, -1.0, 0.0)*0.01 + height_distance*0.05 + (-abs(angle_distance))*0.02 + (-abs(angle_to_point))*0.02 + np.clip(local_state_speed.twist.linear.x, 0.0, 0.5)*0.02
         
         reward = distance_reward + goal_reward
 

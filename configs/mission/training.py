@@ -20,6 +20,7 @@ print (PROJECT)
 sys.path.append(PROJECT)
 from stable_baselines3.common.vec_env.vec_monitor import VecMonitor
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.evaluation import evaluate_policy
 from typing import Callable
 from Flight_Gym import *
 
@@ -174,8 +175,8 @@ def mission():
     t = Environment(4)
     t = VecMonitor(t, filename="/home/javilinos/PPO_Monitor")
     cb = CustomCallback()
-    checkpoint_callback = CheckpointCallback(save_freq=50000, save_path="/home/javilinos/saved_models/checkpoint/", name_prefix="rl_model")
-    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO_X", verbose=1, device=th.device("cpu"), n_steps=1024, batch_size=16, gae_lambda=0.93, gamma=0.999, n_epochs=5, ent_coef=0.001, vf_coef=0.5, normalize_advantage=True, clip_range=0.3, learning_rate=3e-05, use_sde=True, policy_kwargs=dict(
+    checkpoint_callback = CheckpointCallback(save_freq=20000, save_path="/home/javilinos/checkpoints/PPO_1", name_prefix="rl_model")
+    model = PPO("MlpPolicy", t, tensorboard_log="/home/javilinos/PPO", verbose=1, device=th.device("cpu"), normalize_advantage=True, n_steps=1024, batch_size=16, gae_lambda=0.93, gamma=0.999, n_epochs=5, ent_coef=0.001, vf_coef=0.5, clip_range=0.3, learning_rate=3e-05, use_sde=True, sde_sample_freq=8, policy_kwargs=dict(
                         log_std_init=-1,
                         ortho_init=False,
                         activation_fn=th.nn.ReLU,
