@@ -1,3 +1,3 @@
-# Aerostack Mission to train aerial vehicles with velocity control commands.
+# Aerostack Mission for applying RL with Stable Baselines 3 to aerial vehicles' velocity control commands.
 
-VCS application.repos and installation instructions will come out soon, stay tuned!
+VCS application.repos and installation instructions will come out soon.
